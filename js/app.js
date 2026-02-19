@@ -39,8 +39,6 @@
   // selector de objetos por nivel + música
   const groupSelect = document.getElementById("groupSelect");
   const btnMusic = document.getElementById("btnMusic");
-  const bgMusic = document.getElementById("bgMusic");
-  const hitSfx = document.getElementById("hitSfx");
 
   yearEl.textContent = new Date().getFullYear();
 
@@ -56,9 +54,181 @@
   let paused = false;
   let mouse = { x: -9999, y: -9999 };
 
-  // audio state
+  // =========================
+  // AUDIO (SIN ARCHIVOS) - WebAudio
+  // =========================
   let musicEnabled = false;
   let audioUnlocked = false;
+
+  /** @type {AudioContext|null} */
+  let audioCtx = null;
+  let musicTimer = null;
+  let musicGain = null;
+
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+  }
+
+  async function unlockAudioOnce() {
+    if (audioUnlocked) return;
+    try {
+      const ac = ensureAudioCtx();
+      if (ac.state === "suspended") await ac.resume();
+      audioUnlocked = true;
+    } catch (_) {
+      audioUnlocked = false;
+    }
+  }
+
+  function beep({ freq = 440, dur = 0.08, type = "sine", vol = 0.25, glideTo = null }) {
+    if (!audioUnlocked) return;
+    const ac = ensureAudioCtx();
+
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+
+    const now = ac.currentTime;
+    const end = now + dur;
+
+    o.type = type;
+    o.frequency.setValueAtTime(freq, now);
+
+    if (glideTo) {
+      o.frequency.exponentialRampToValueAtTime(glideTo, end);
+    }
+
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(clamp01(vol), now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+
+    o.connect(g);
+    g.connect(ac.destination);
+
+    o.start(now);
+    o.stop(end + 0.01);
+  }
+
+  function playHit() {
+    // SFX gamer: doble "blip" corto
+    beep({ freq: 860, glideTo: 520, dur: 0.07, type: "triangle", vol: 0.28 });
+    setTimeout(() => beep({ freq: 520, glideTo: 980, dur: 0.05, type: "square", vol: 0.18 }), 35);
+  }
+
+  function stopMusicSynth() {
+    if (musicTimer) {
+      clearInterval(musicTimer);
+      musicTimer = null;
+    }
+    if (musicGain && audioCtx) {
+      const now = audioCtx.currentTime;
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+      musicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    }
+  }
+
+  function startMusicSynth() {
+    if (!audioUnlocked) return;
+    const ac = ensureAudioCtx();
+
+    if (!musicGain) {
+      musicGain = ac.createGain();
+      musicGain.gain.value = 0.0001;
+      musicGain.connect(ac.destination);
+    }
+
+    const now = ac.currentTime;
+    musicGain.gain.cancelScheduledValues(now);
+    musicGain.gain.setValueAtTime(0.0001, now);
+    musicGain.gain.exponentialRampToValueAtTime(0.12, now + 0.12);
+
+    // Secuencia simple (arpegio loop) - suena "retro"
+    const scale = [261.63, 311.13, 392.0, 466.16, 523.25, 622.25, 784.0]; // C, Eb, G, Bb, C, Eb, G
+    let step = 0;
+
+    const bpm = 132;
+    const intervalMs = Math.round((60_000 / bpm) / 2); // corcheas
+
+    musicTimer = setInterval(() => {
+      if (!musicEnabled || paused) return;
+
+      const base = scale[step % scale.length];
+      const accent = (step % 8 === 0);
+
+      // Nota principal
+      {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        const t = ac.currentTime;
+
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(base, t);
+
+        const v = accent ? 0.11 : 0.07;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(v, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+
+        o.connect(g);
+        g.connect(musicGain);
+
+        o.start(t);
+        o.stop(t + 0.13);
+      }
+
+      // Nota de apoyo (octava/cinco)
+      if (step % 2 === 0) {
+        const o2 = ac.createOscillator();
+        const g2 = ac.createGain();
+        const t2 = ac.currentTime;
+
+        o2.type = "square";
+        o2.frequency.setValueAtTime(base * 2, t2);
+
+        g2.gain.setValueAtTime(0.0001, t2);
+        g2.gain.exponentialRampToValueAtTime(0.035, t2 + 0.01);
+        g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.09);
+
+        o2.connect(g2);
+        g2.connect(musicGain);
+
+        o2.start(t2);
+        o2.stop(t2 + 0.1);
+      }
+
+      step++;
+    }, intervalMs);
+  }
+
+  async function toggleMusic() {
+    musicEnabled = !musicEnabled;
+    btnMusic.textContent = `Música: ${musicEnabled ? "ON" : "OFF"}`;
+
+    await unlockAudioOnce();
+    if (!audioUnlocked) return;
+
+    if (!musicEnabled) {
+      stopMusicSynth();
+      return;
+    }
+
+    stopMusicSynth();
+    startMusicSynth();
+  }
+
+  // Desbloquea audio al primer gesto del usuario (por políticas del navegador)
+  window.addEventListener(
+    "pointerdown",
+    () => {
+      unlockAudioOnce();
+    },
+    { once: true }
+  );
 
   // =========================
   // UTILIDADES
@@ -76,66 +246,18 @@
   function isPointInCircle(px, py, cx, cy, r) {
     const dx = px - cx;
     const dy = py - cy;
-    return (dx * dx + dy * dy) <= (r * r);
+    return dx * dx + dy * dy <= r * r;
   }
 
   // =========================
-  // AUDIO (unlock + play helpers)
-  // =========================
-  async function unlockAudioOnce() {
-    if (audioUnlocked) return;
-    try {
-      // ======= 🔊 AGREGA AQUÍ LA RUTA DEL SONIDO =======
-      // Coloca tu archivo en: assets/audio/hit.mp3 (o cambia el nombre)
-     if (!hitSfx.src) hitSfx.src = "assets/audio/hit.wav";
-
-
-      hitSfx.volume = 0.9;
-      hitSfx.currentTime = 0;
-      await hitSfx.play();
-      hitSfx.pause();
-      hitSfx.currentTime = 0;
-
-      bgMusic.volume = 0.35;
-      audioUnlocked = true;
-    } catch (_) {
-      audioUnlocked = false;
-    }
-  }
-
-  function toggleMusic() {
-    musicEnabled = !musicEnabled;
-    btnMusic.textContent = `Música: ${musicEnabled ? "ON" : "OFF"}`;
-
-    if (!musicEnabled) {
-      bgMusic.pause();
-      bgMusic.currentTime = 0;
-      return;
-    }
-
-    unlockAudioOnce().finally(() => {
-      if (audioUnlocked) bgMusic.play().catch(() => {});
-    });
-  }
-
-  function playHit() {
-    unlockAudioOnce().finally(() => {
-      try {
-        hitSfx.currentTime = 0;
-        hitSfx.play().catch(() => {});
-      } catch (_) {}
-    });
-  }
-
-  // =========================
-  // PALETA DE COLORES (más bonita)
+  // PALETA DE COLORES
   // =========================
   const PALETTE = [
-    { base: "rgba(124,58,237,0.90)", hover: "rgba(34,211,238,0.98)", glow: "rgba(34,211,238,0.14)" },  // morado -> cian
-    { base: "rgba(255,61,127,0.90)", hover: "rgba(249,115,22,0.98)", glow: "rgba(255,61,127,0.14)" },  // rosa -> naranja
-    { base: "rgba(34,197,94,0.90)",  hover: "rgba(34,211,238,0.98)", glow: "rgba(34,197,94,0.14)" },   // verde -> cian
-    { base: "rgba(59,130,246,0.90)", hover: "rgba(124,58,237,0.98)", glow: "rgba(59,130,246,0.14)" },   // azul -> morado
-    { base: "rgba(249,115,22,0.90)", hover: "rgba(255,61,127,0.98)", glow: "rgba(249,115,22,0.14)" }    // naranja -> rosa
+    { base: "rgba(124,58,237,0.90)", hover: "rgba(34,211,238,0.98)", glow: "rgba(34,211,238,0.14)" },
+    { base: "rgba(255,61,127,0.90)", hover: "rgba(249,115,22,0.98)", glow: "rgba(255,61,127,0.14)" },
+    { base: "rgba(34,197,94,0.90)", hover: "rgba(34,211,238,0.98)", glow: "rgba(34,197,94,0.14)" },
+    { base: "rgba(59,130,246,0.90)", hover: "rgba(124,58,237,0.98)", glow: "rgba(59,130,246,0.14)" },
+    { base: "rgba(249,115,22,0.90)", hover: "rgba(255,61,127,0.98)", glow: "rgba(249,115,22,0.14)" }
   ];
 
   function pickPalette() {
@@ -154,7 +276,6 @@
       this.vx = vx;
       this.vy = vy;
 
-      // ✅ colores más bonitos y variados
       const p = pickPalette();
       this.baseColor = p.base;
       this.hoverColor = p.hover;
@@ -183,7 +304,6 @@
         this.vx *= -1;
       }
 
-      // Hover
       this.isHovered = isPointInCircle(mouse.x, mouse.y, this.x, this.y, this.r);
     }
 
@@ -191,7 +311,7 @@
       ctx.save();
       ctx.globalAlpha = clamp(this.alpha, 0, 1);
 
-      // Glow (más pro y con el color del círculo)
+      // Glow
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.r + 7, 0, Math.PI * 2);
       ctx.fillStyle = this.isHovered ? "rgba(255,255,255,0.10)" : this.glowColor;
@@ -208,15 +328,9 @@
       ctx.strokeStyle = this.isHovered ? "rgba(255,255,255,0.26)" : "rgba(255,255,255,0.16)";
       ctx.stroke();
 
-      // Tiny highlight
+      // Highlight
       ctx.beginPath();
-      ctx.arc(
-        this.x - this.r * 0.25,
-        this.y - this.r * 0.25,
-        Math.max(2, this.r * 0.18),
-        0,
-        Math.PI * 2
-      );
+      ctx.arc(this.x - this.r * 0.25, this.y - this.r * 0.25, Math.max(2, this.r * 0.18), 0, Math.PI * 2);
       ctx.fillStyle = "rgba(255,255,255,0.25)";
       ctx.fill();
 
@@ -228,7 +342,7 @@
     }
 
     isDead() {
-      return this.alpha <= 0 || (this.y + this.r) < 0;
+      return this.alpha <= 0 || this.y + this.r < 0;
     }
   }
 
@@ -249,17 +363,12 @@
     const speed = getSpeedForLevel(currentLevel);
 
     for (let i = 0; i < toSpawn; i++) {
-      // ✅ varios tamaños (ya estaba, se mantiene)
       const r = rand(10, 24);
 
-      // Nacen debajo del canvas
       const x = rand(r, canvas.width - r);
       const y = canvas.height + rand(r + 10, 120);
 
-      // Direcciones distintas
       const vx = rand(-0.45, 0.45) * (1 + currentLevel * 0.03);
-
-      // Siempre hacia arriba, más rápido por nivel
       const vy = -speed * rand(0.9, 1.25);
 
       circles.push(new Circle(x, y, r, vx, vy));
@@ -281,7 +390,6 @@
     levelsText.textContent = `${currentLevel} / ${TOTAL_LEVELS}`;
     levelBadge.textContent = `Nivel: ${currentLevel}/${TOTAL_LEVELS}`;
 
-    // ✅ progreso más coherente (nivel actual / total)
     levelsBar.style.width = `${Math.round((currentLevel / TOTAL_LEVELS) * 100)}%`;
 
     levelHint.textContent = `Velocidad: ${getSpeedForLevel(currentLevel).toFixed(2)} • Objetos/Nivel: ${GROUP_SIZE}`;
@@ -313,8 +421,9 @@
   });
 
   canvas.addEventListener("click", async (e) => {
-    if (!audioUnlocked) await unlockAudioOnce();
-    if (musicEnabled && audioUnlocked && bgMusic.paused) bgMusic.play().catch(() => {});
+    await unlockAudioOnce();
+    // si el usuario ya activó música y estaba pausada por unlock, reanuda
+    if (musicEnabled && audioUnlocked && !musicTimer) startMusicSynth();
 
     const pos = getMousePos(e);
 
@@ -323,7 +432,7 @@
       if (!c.isFading && isPointInCircle(pos.x, pos.y, c.x, c.y, c.r)) {
         c.startFade();
         removedCount++;
-        playHit(); // 🔊 sonido al eliminar
+        playHit(); // 🔊 SFX sin archivos
         updateUI();
         break;
       }
@@ -336,7 +445,6 @@
   function clear() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Fondo gamer suave
     const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grd.addColorStop(0, "rgba(124,58,237,0.05)");
     grd.addColorStop(0.5, "rgba(34,211,238,0.04)");
@@ -344,7 +452,6 @@
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // estrellas
     ctx.save();
     ctx.globalAlpha = 0.35;
     for (let i = 0; i < 36; i++) {
@@ -360,16 +467,16 @@
     if (!paused) {
       clear();
 
-      circles.forEach(c => c.update());
-      circles.forEach(c => c.draw());
+      circles.forEach((c) => c.update());
+      circles.forEach((c) => c.draw());
 
-      circles = circles.filter(c => !c.isDead());
+      circles = circles.filter((c) => !c.isDead());
 
-      // ✅ SUBIR DE NIVEL SOLO CUANDO SE TERMINA EL GRUPO (ya no hay objetos en pantalla)
       if (circles.length === 0 && spawnedCount < TOTAL_CIRCLES) {
-        // si ya se generó al menos un grupo y tocaba cambiar de nivel, sube antes de spawnear el nuevo grupo
-        if (spawnedCount !== 0 && (spawnedCount % GROUP_SIZE === 0)) {
+        if (spawnedCount !== 0 && spawnedCount % GROUP_SIZE === 0) {
           currentLevel = clamp(currentLevel + 1, 1, TOTAL_LEVELS);
+          // mini sfx al subir nivel (sin archivos)
+          if (audioUnlocked) beep({ freq: 330, glideTo: 660, dur: 0.12, type: "triangle", vol: 0.18 });
         }
         spawnGroup();
       }
@@ -399,6 +506,15 @@
   btnPause.addEventListener("click", () => {
     paused = !paused;
     btnPause.textContent = paused ? "Reanudar" : "Pausar";
+
+    // si está pausado, baja música; si reanuda, vuelve
+    if (musicEnabled && audioUnlocked) {
+      if (paused) stopMusicSynth();
+      else {
+        stopMusicSynth();
+        startMusicSynth();
+      }
+    }
   });
 
   btnRestart.addEventListener("click", () => resetGame());
@@ -406,9 +522,9 @@
   btnMusic.addEventListener("click", () => toggleMusic());
 
   groupSelect.addEventListener("change", () => {
-    GROUP_SIZE = parseInt(groupSelect.value, 10); // ✅ 10/15/20
+    GROUP_SIZE = parseInt(groupSelect.value, 10);
     recalcLevels();
-    resetGame(); // aplica el nuevo grupo desde nivel 1
+    resetGame();
   });
 
   function resetGame() {
@@ -416,7 +532,7 @@
     removedCount = 0;
     spawnedCount = 0;
 
-    currentLevel = 1; // ✅ reinicia siempre en nivel 1
+    currentLevel = 1;
 
     paused = false;
     btnPause.textContent = "Pausar";
@@ -424,6 +540,11 @@
     recalcLevels();
     updateUI();
     spawnGroup();
+
+    if (musicEnabled && audioUnlocked) {
+      stopMusicSynth();
+      startMusicSynth();
+    }
   }
 
   // =========================
