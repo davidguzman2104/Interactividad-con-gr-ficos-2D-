@@ -1,0 +1,160 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas 2D - Niveles y Estadísticas</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- CSS propio -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body class="bg-app">
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark nav-gamer shadow-lg sticky-top">
+    <div class="container">
+      <a class="navbar-brand fw-bold brand-glow" href="#">
+        <span class="brand-dot"></span> Canvas 2D • Gamer Levels
+      </a>
+
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navMain">
+        <ul class="navbar-nav ms-auto align-items-lg-center gap-2">
+          <li class="nav-item">
+            <span class="badge badge-gamer px-3 py-2" id="levelBadge">Nivel: 1/15</span>
+          </li>
+
+          <li class="nav-item">
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-light small opacity-75">Objetos/Nivel</span>
+              <select id="groupSelect" class="form-select form-select-sm select-gamer" aria-label="Seleccionar objetos por nivel">
+                <option value="10" selected>10</option>
+                <option value="15">15</option>
+                <option value="20">20</option>
+              </select>
+            </div>
+          </li>
+
+          <li class="nav-item">
+            <button class="btn btn-gamer-outline btn-sm px-3" id="btnMusic">Música: OFF</button>
+          </li>
+
+          <li class="nav-item">
+            <button class="btn btn-gamer-outline btn-sm px-3" id="btnPause">Pausar</button>
+          </li>
+
+          <li class="nav-item">
+            <button class="btn btn-gamer btn-sm px-3" id="btnRestart">Reiniciar</button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Contenido -->
+  <main class="container my-4">
+    <div class="row g-4">
+      <!-- Canvas -->
+      <div class="col-12 col-lg-8">
+        <div class="card glass gamer-card border-0">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+              <div>
+                <h5 class="mb-0 title-neon">Área de Juego</h5>
+                <small class="text-secondary">Hover: cambia color • Click: desaparece lentamente</small>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge pill-dark" id="countBadge">En pantalla: 0</span>
+                <span class="badge pill-success" id="spawnBadge">Generados: 0/150</span>
+              </div>
+            </div>
+
+            <div class="canvas-wrap gamer-frame">
+              <canvas id="gameCanvas" width="900" height="520" aria-label="Canvas de juego"></canvas>
+              <div class="scanline"></div>
+              <div class="corner corner-tl"></div>
+              <div class="corner corner-tr"></div>
+              <div class="corner corner-bl"></div>
+              <div class="corner corner-br"></div>
+            </div>
+
+            <div class="mt-3 small text-secondary">
+              Total: 150 • Aparecen por niveles (grupo configurable) • Cada nivel aumenta la velocidad
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de estadísticas -->
+      <div class="col-12 col-lg-4">
+        <div class="card glass gamer-card border-0 h-100">
+          <div class="card-body">
+            <h5 class="mb-3 title-neon">Estadísticas</h5>
+
+            <div class="stat-box mb-3 stat-neon">
+              <div class="d-flex justify-content-between">
+                <span class="text-secondary">Eliminados</span>
+                <span class="fw-semibold" id="removedText">0</span>
+              </div>
+              <div class="progress mt-2 progress-gamer" role="progressbar" aria-label="Porcentaje eliminados">
+                <div class="progress-bar bar-neon" id="removedBar" style="width: 0%"></div>
+              </div>
+              <div class="d-flex justify-content-between mt-2 small">
+                <span class="text-secondary">Porcentaje</span>
+                <span class="fw-semibold" id="removedPct">0%</span>
+              </div>
+            </div>
+
+            <div class="stat-box mb-3 stat-neon">
+              <div class="d-flex justify-content-between">
+                <span class="text-secondary">Niveles</span>
+                <span class="fw-semibold" id="levelsText">1 / 15</span>
+              </div>
+              <div class="progress mt-2 progress-gamer" role="progressbar" aria-label="Progreso de niveles">
+                <div class="progress-bar bar-ice" id="levelsBar" style="width: 0%"></div>
+              </div>
+              <div class="small text-secondary mt-2" id="levelHint">
+                Se generarán 10 elementos en este nivel.
+              </div>
+            </div>
+
+            <div class="alert alert-dark border-0 small mb-0 alert-gamer">
+              <div class="fw-semibold">Controles</div>
+              <div>• Hover: cambia color</div>
+              <div>• Click: elimina con fade</div>
+              <div>• Música: botón en navbar</div>
+              <div>• Pausar/Reiniciar</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Audio (assets) -->
+  <audio id="bgMusic" src="assets/audio/bg.mp3" preload="auto" loop></audio>
+ <audio id="hitSfx" preload="auto"></audio>
+
+  <!-- Footer -->
+  <footer class="footer-gamer text-light py-3 mt-auto">
+    <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center gap-2">
+      <div class="small">
+        © <span id="year"></span> • Canvas 2D App
+      </div>
+      <div class="small">
+        David Fidel Guzmán Sánchez • 21200255
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
